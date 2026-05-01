@@ -1,0 +1,19 @@
+{
+  "catalog": "gnakan_experiments",
+  "channel": "CURRENT",
+  "continuous": false,
+  "development": false,
+  "id": "c3d3e1c5-0405-4b48-b259-b1a6eeeb5a07",
+  "libraries": [
+    {
+      "glob": {
+        "include": "/Workspace/Users/gary@bpcs.com/New Pipeline 2026-04-30 19:40/transformations/**"
+      }
+    }
+  ],
+  "name": "New Pipeline 2026-04-30 19:40",
+  "photon": true,
+  "root_path": "/Workspace/Users/gary@bpcs.com/New Pipeline 2026-04-30 19:40",
+  "schema": "tl_experiments",
+  "serverless": true
+}
