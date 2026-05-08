@@ -3,9 +3,9 @@
 # MAGIC %md
 # MAGIC > "MLflow trace storage in Unity Catalog tables, previously in Beta, is now in Public Preview. Traces are stored in OpenTelemetry (OTel) format, access is governed through Unity Catalog schema and table permissions, and you can query traces from Databricks SQL or the MLflow Python SDK."
 # MAGIC
-# MAGIC That release note is the headline. The practitioner question underneath it: what's actually reachable for MLflow tracing on Databricks Free Edition today, when the UC-backed trace table path is gated on externally-stored UC catalogs and workspace admin Previews?
+# MAGIC The release note is the headline. The question I had underneath it: where is that SQL-queryable path actually reachable today, given that the UC-backed trace destination is gated on externally-stored UC catalogs and workspace admin Previews?
 # MAGIC
-# MAGIC Here's what this notebook tests: capture a simulated LLM call as an MLflow span, retrieve it from Python via `search_traces`, and view it in the MLflow UI — entirely on Free Edition. It also includes an availability probe at the end that tells you, on any workspace, whether the UC trace storage Public Preview is reachable for you. What you walk away with: a working agent observability pattern that runs everywhere Databricks runs, plus a clear read on where the UC governance layer kicks in.
+# MAGIC I built an availability probe to find out. The notebook captures a real Llama 4 call as an MLflow span, retrieves it via `search_traces`, and then runs three gates against a dedicated probe catalog to test whether the UC trace storage runtime is open on this workspace. The probe is the artifact. Run it on the workspace in front of you and the gate output is the answer: which gates pass, which gate fails, and what the failure says.
 
 # COMMAND ----------
 
@@ -14,10 +14,10 @@
 # MAGIC
 # MAGIC What you need before running this:
 # MAGIC
-# MAGIC - **Databricks Free Edition** — [databricks.com/learn/free-edition](https://www.databricks.com/learn/free-edition)
-# MAGIC - **Compute:** the default Free Edition Serverless runtime
-# MAGIC - **Libraries:** `mlflow[databricks]>=3.11.0` — Free Edition's pre-installed MLflow predates the modern tracing API, so the next cell installs a current version and restarts the Python kernel
-# MAGIC - **Unity Catalog:** the default workspace catalog is fine for the tracing path; the optional probe at the end tests whether your environment can also reach UC-backed trace storage
+# MAGIC - **A Databricks workspace.** I demonstrated this notebook on Databricks Free Edition and on a Premium Azure workspace with an externally-stored UC metastore. Either runs the tracing path. The probe at the end is what tells the two environments apart.
+# MAGIC - **Compute:** the default Serverless runtime.
+# MAGIC - **Libraries:** `mlflow[databricks]>=3.11.0`. The pre-installed MLflow on most workspaces predates the modern tracing API, so the next cell installs a current version and restarts the Python kernel.
+# MAGIC - **Unity Catalog:** the default workspace catalog is fine for the tracing path. The probe creates a dedicated `tl_mlflow_probe` catalog so cleanup is one statement.
 
 # COMMAND ----------
 
@@ -32,8 +32,8 @@ dbutils.library.restartPython()
 import mlflow
 
 # Point MLflow at the Databricks workspace tracking server and the UC-aware
-# model registry. On Free Edition / Serverless, set_registry_uri must be called
-# explicitly — Serverless Spark Connect does not expose spark.mlflow.modelRegistryUri,
+# model registry. On Serverless compute, set_registry_uri must be called
+# explicitly. Serverless Spark Connect does not expose spark.mlflow.modelRegistryUri,
 # so MLflow's default lookup raises CONFIG_NOT_AVAILABLE without it.
 mlflow.set_tracking_uri("databricks")
 mlflow.set_registry_uri("databricks-uc")
@@ -53,36 +53,17 @@ print(f"Artifact root : {experiment.artifact_location}")
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## What we're about to run
-# MAGIC
-# MAGIC We're going to make a real Foundation Model API call — a question routed to a Databricks-hosted Llama 4 endpoint, a response coming back — and wrap it in an MLflow span. The span captures the inputs, outputs, token usage, and latency in OpenTelemetry format. Then we'll retrieve the same span from Python and inspect it.
-# MAGIC
-# MAGIC **What do you think will happen?**
-# MAGIC
-# MAGIC Will `mlflow.search_traces` come back with the span fully populated — trace_id, status, the prompt and response we set — or will it return a row with the structural fields filled in but the inputs and outputs missing because the span context didn't flush to the tracking server in time?
-# MAGIC
-# MAGIC Make your prediction before you run the next cell.
-
-# COMMAND ----------
-
-# MAGIC %md
 # MAGIC ## Logging the LLM call
 # MAGIC
-# MAGIC We use `mlflow.start_span()` as a context manager. Inside the span, we record:
-# MAGIC - The inputs going into the model
-# MAGIC - The outputs it returned
-# MAGIC - Metadata to attach to the span (model name, token counts, finish reason)
+# MAGIC I wrapped the call in `mlflow.start_span()` as a context manager. Inside the span, I recorded the prompt, the response, and the token/finish-reason metadata.
 # MAGIC
-# MAGIC The call below is a real Foundation Model API request. Free Edition is no-cost
-# MAGIC and includes Foundation Model APIs governed by quota (active endpoints, no
-# MAGIC provisioned throughput) rather than per-token billing. The workspace's
-# MAGIC authenticated session provides auth — no API key is needed.
+# MAGIC The call is a real Foundation Model API request to a Databricks-hosted Llama 4 endpoint. The workspace's authenticated session provides auth, so there is no API key to manage.
 
 # COMMAND ----------
 
 from openai import OpenAI
 
-# Auth comes from the Databricks notebook context — no API key to manage.
+# Auth comes from the Databricks notebook context. No API key to manage.
 ctx = dbutils.notebook.entry_point.getDbutils().notebook().getContext()
 client = OpenAI(
     api_key=ctx.apiToken().get(),
@@ -118,10 +99,7 @@ print(f"Response preview: {response_text[:120]}...")
 # MAGIC %md
 # MAGIC ## Retrieving the trace
 # MAGIC
-# MAGIC `mlflow.search_traces` returns a Pandas DataFrame, one row per trace, with the
-# MAGIC inputs, outputs, status, and timing for each. This is the programmatic surface
-# MAGIC for agent observability — the same data you can browse interactively in the
-# MAGIC MLflow UI under the experiment page in your workspace.
+# MAGIC `mlflow.search_traces` returns a Pandas DataFrame, one row per trace, with the inputs, outputs, status, and timing for each. The same data renders interactively in the MLflow UI under the experiment page in the workspace.
 
 # COMMAND ----------
 
@@ -146,56 +124,30 @@ display(traces_df)
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## The reveal
+# MAGIC ## Probing the SQL-queryable path
 # MAGIC
-# MAGIC The span you just logged came back as a structured row — trace_id, status, timing, and
-# MAGIC the prompt and response you set as inputs and outputs. You can also browse it
-# MAGIC interactively in the MLflow UI: open the experiment page in your workspace and you'll
-# MAGIC see the trace timeline, span tree, and attributes rendered as a UI.
-# MAGIC
-# MAGIC That's the agent observability surface today on Free Edition. Every span you log is a
-# MAGIC structured, searchable, inspectable record of an LLM decision your code made. You can
-# MAGIC pull traces in code for evaluation harnesses. You can browse them in the UI for
-# MAGIC debugging. The OpenTelemetry format means they travel cleanly into any observability
-# MAGIC stack you're already running.
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ## What's not reachable on Free Edition (and how to test for yourself)
-# MAGIC
-# MAGIC The April 30, 2026 release note announced traces as Delta tables in Unity Catalog —
-# MAGIC `SELECT *` on agent decision history, governed alongside your production data. That
-# MAGIC path requires:
+# MAGIC The April 30, 2026 release note announced traces as Delta tables in Unity Catalog. `SELECT *` on agent decision history, governed alongside production data. The path requires:
 # MAGIC
 # MAGIC - Workspace admin enabling the "OpenTelemetry on Databricks" Preview
 # MAGIC - MLflow `>= 3.11`
 # MAGIC - A SQL warehouse with `CAN USE`
-# MAGIC - A UC catalog backed by **external storage** — UC tables in default storage are not
-# MAGIC   supported as trace destinations
+# MAGIC - A UC catalog backed by **external storage**. UC tables in default storage are not supported as trace destinations.
 # MAGIC
-# MAGIC Free Edition's metastore root is default storage, so any catalog created there
-# MAGIC inherits default storage too. That puts the SQL-queryable trace path out of reach
-# MAGIC on Free Edition today.
-# MAGIC
-# MAGIC The probe below creates a dedicated `tl_mlflow_probe` catalog so cleanup is a single
-# MAGIC `DROP CATALOG ... CASCADE` regardless of outcome. Run it on a paid workspace with an
-# MAGIC externally-stored metastore root and you should see all three gates pass.
+# MAGIC The probe below tests the runtime side of those requirements. It creates a dedicated `tl_mlflow_probe` catalog (so cleanup is one `DROP CATALOG ... CASCADE` regardless of outcome) and runs three gates: MLflow version, the `UnityCatalog` import path, and an actual `set_experiment(..., trace_location=UnityCatalog(...))` call. The third gate is where storage type matters. A workspace whose metastore root is externally-stored UC will see all three gates pass. A workspace whose metastore root is default storage will see gate 3 fail with a verbatim error that names the constraint. Both outcomes are evidence.
 
 # COMMAND ----------
 
 # Availability probe: is the UC trace storage runtime open on this workspace?
-# We create a dedicated catalog AND a fresh experiment for the probe. Both isolate
+# I created a dedicated catalog AND a fresh experiment for the probe. Both isolate
 # the test from the rest of the notebook: cleanup is one DROP CATALOG ... CASCADE
 # plus deleting the probe experiment from the MLflow UI.
 #
 # Why a fresh experiment: MLflow rejects setting a UC trace_location on any
 # experiment that already contains traces ("A UC Trace Destination can only be
 # linked to an Experiment that does not already contain any traces"). The main
-# experiment above already has the span we logged, so we need a clean one to
+# experiment above already has the span I logged, so I needed a clean one to
 # test the storage-type gate on its own.
 
-import os
 import uuid
 
 PROBE_CATALOG = "tl_mlflow_probe"
@@ -204,10 +156,10 @@ PROBE_PREFIX  = "trace"
 PROBE_EXPERIMENT = f"/Users/{current_user}/mlflow-uc-probe-{uuid.uuid4().hex[:8]}"
 
 # Create the dedicated probe catalog and schema (idempotent).
-# On a paid workspace with an externally-stored metastore root, the new catalog
-# inherits external storage and gate 3 should pass.
-# On Free Edition, the new catalog inherits Free Edition's default-storage
-# metastore root, so gate 3 will still fail — but cleanup is one statement.
+# The new catalog inherits the metastore root's storage type. If the root is
+# externally-stored UC, gate 3 should pass. If the root is default storage,
+# gate 3 will fail with the verbatim error message naming the constraint.
+# Cleanup is one statement regardless of outcome.
 spark.sql(f"CREATE CATALOG IF NOT EXISTS {PROBE_CATALOG}")
 spark.sql(f"CREATE SCHEMA IF NOT EXISTS {PROBE_CATALOG}.{PROBE_SCHEMA}")
 print(f"Probe catalog ready:    {PROBE_CATALOG}.{PROBE_SCHEMA}")
@@ -228,13 +180,12 @@ except ImportError as exc:
     print(f"[gate 2] UnityCatalog import: FAIL ({exc})")
 
 # Gate 3: API call against a fresh experiment in the dedicated probe catalog.
-# If your workspace requires an explicit SQL warehouse for trace ingestion, set
-# MLFLOW_TRACING_SQL_WAREHOUSE_ID to the warehouse ID before this runs (auto-
-# discovery handles most paid workspaces and Free Edition).
+# If the workspace requires an explicit SQL warehouse for trace ingestion, set
+# MLFLOW_TRACING_SQL_WAREHOUSE_ID to the warehouse ID before this runs.
+# Auto-discovery handles most workspaces.
 gate3_ok = False
 if gate_version and gate_import:
     try:
-        os.environ.setdefault("MLFLOW_TRACING_SQL_WAREHOUSE_ID", "")
         mlflow.set_experiment(
             experiment_name=PROBE_EXPERIMENT,
             trace_location=UnityCatalog(
@@ -251,7 +202,7 @@ if gate_version and gate_import:
         print(f"         {type(exc).__name__}: {exc}")
         print("\nRESULT: UC trace storage runtime is gated. The error class/message above identifies which gate.")
 else:
-    print("\nRESULT: Cannot probe gate 3 — earlier gate failed.")
+    print("\nRESULT: Cannot probe gate 3. An earlier gate failed.")
 
 print(f"\nCleanup (run when you're done):")
 print(f"  spark.sql(\"DROP CATALOG {PROBE_CATALOG} CASCADE\")")
@@ -262,14 +213,9 @@ print(f"  # then delete the probe experiment from the MLflow UI: {PROBE_EXPERIME
 # MAGIC %md
 # MAGIC ## Closing the loop (only runs if gate 3 passed)
 # MAGIC
-# MAGIC If gate 3 passed, your workspace can write traces to a UC Delta table — and we
-# MAGIC have the destination provisioned. The cell below logs one real span to the probe
-# MAGIC experiment (linked to the UC trace destination), waits a few seconds for the
-# MAGIC async trace flush, and runs `SELECT *` against the OTel spans table. That is the
-# MAGIC `from LLM call to SQL row` reveal the original release note promised.
+# MAGIC If gate 3 passed, the workspace can write traces to a UC Delta table and the destination is provisioned. The cell below logs one real span to the probe experiment (linked to the UC trace destination), waits a few seconds for the async trace flush, and inspects the OTel spans table the release note promised. That closes the loop from LLM call to SQL row.
 # MAGIC
-# MAGIC If gate 3 didn't pass, this cell prints a skip message — there's no UC trace
-# MAGIC table to query, which is itself the architectural finding for that workspace.
+# MAGIC If gate 3 did not pass, the cell prints a skip message. The skip is itself the architectural finding: trace ingestion requires externally-stored UC, and this workspace does not have it.
 
 # COMMAND ----------
 
@@ -305,44 +251,38 @@ if gate3_ok:
     n = spark.sql(f"SELECT COUNT(*) AS n FROM {table_fqn}").collect()[0]["n"]
     print(f"  {n} row(s)")
     if n == 0:
-        print("  (If 0, the async flush may not have caught up yet — re-run this cell.)")
+        print("  (If 0, the async flush may not have caught up yet. Re-run this cell.)")
 
     print(f"\nFor full row inspection: the OTel spans table includes VARIANT columns")
     print(f"that the Spark Connect client cannot render directly. Open the workspace")
     print(f"SQL editor and run:")
     print(f"  SELECT * FROM {table_fqn} LIMIT 10")
 else:
-    print("Skipped — gate 3 did not pass on this workspace, so there is no UC trace destination to query.")
+    print("Skipped. Gate 3 did not pass on this workspace, so there is no UC trace destination to query.")
     print("This skip is itself the architectural finding: trace ingestion requires externally-stored UC.")
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## What this means for teams building agents today
+# MAGIC ## What I learned
 # MAGIC
-# MAGIC On any Databricks workspace, including Free Edition, the MLflow tracing API is enough
-# MAGIC to validate the agent observability pattern end to end: log spans, search them in code,
-# MAGIC inspect them in a UI, ship them to OTel-compatible tooling. That's a real surface a
-# MAGIC team can build on today.
+# MAGIC The MLflow tracing API was reachable on every workspace I ran this on. Spans logged, traces searched, the OTel data model rendered cleanly in the UI and in `search_traces`. That part is portable. A team can build the agent observability pattern on any Databricks workspace today and have the traces travel into Datadog, Grafana, or whatever else is on the stack.
 # MAGIC
-# MAGIC The next step — `SELECT *` on traces from Databricks SQL with full Unity Catalog
-# MAGIC governance — is a paid-workspace surface. The architectural gate is externally-stored
-# MAGIC UC, not the API itself. If you're running in a paid workspace with admin access and a
-# MAGIC catalog backed by external storage, the same notebook (with `trace_location` set on
-# MAGIC `set_experiment`) gets you the SQL path. The probe above tells you when your
-# MAGIC environment crosses that line.
+# MAGIC The SQL-queryable destination is the part that bifurcates. The gate is metastore root storage type, not workspace tier. On a workspace with an externally-stored UC metastore, gate 3 passed and the close-the-loop cell produced a queryable Delta row within seconds. On a workspace whose metastore root was default storage, gate 3 stopped with `Tables created in default storage are not supported`. Same notebook, same MLflow version. The variable was the storage architecture, nothing else.
+# MAGIC
+# MAGIC The probe is the artifact. Run it on the workspace in front of you and the gate output is the answer.
 
 # COMMAND ----------
 
 # MAGIC %md
 # MAGIC ## Where to go next
 # MAGIC
-# MAGIC **[MLflow Tracing Overview](https://mlflow.org/docs/latest/genai/tracing/)** — The full picture on spans, traces, and the OTel data model. Start here to instrument a real agent.
+# MAGIC **[MLflow Tracing Overview](https://mlflow.org/docs/latest/genai/tracing/).** The full picture on spans, traces, and the OTel data model. Start here to instrument a real agent.
 # MAGIC
-# MAGIC **[Store OpenTelemetry traces in Unity Catalog (Databricks docs)](https://docs.databricks.com/aws/en/mlflow3/genai/tracing/trace-unity-catalog)** — The official enablement path: Previews, MLflow version, SQL warehouse, `trace_location=UnityCatalog(...)`.
+# MAGIC **[Store OpenTelemetry traces in Unity Catalog (Databricks docs)](https://docs.databricks.com/aws/en/mlflow3/genai/tracing/trace-unity-catalog).** The official enablement path: Previews, MLflow version, SQL warehouse, `trace_location=UnityCatalog(...)`.
 # MAGIC
-# MAGIC **[Query OpenTelemetry traces stored in Unity Catalog (Databricks docs)](https://docs.databricks.com/aws/en/mlflow3/genai/tracing/observe-with-traces/query-dbsql)** — SQL patterns once the UC path is enabled.
+# MAGIC **[Query OpenTelemetry traces stored in Unity Catalog (Databricks docs)](https://docs.databricks.com/aws/en/mlflow3/genai/tracing/observe-with-traces/query-dbsql).** SQL patterns once the UC path is enabled.
 # MAGIC
-# MAGIC **[MLflow Public Preview release note (April 30, 2026)](https://docs.databricks.com/aws/en/release-notes/product/2026/april#mlflow-trace-storage-in-unity-catalog-is-now-in-public-preview)** — The announcement this notebook reacts to.
+# MAGIC **[MLflow Public Preview release note (April 30, 2026)](https://docs.databricks.com/aws/en/release-notes/product/2026/april#mlflow-trace-storage-in-unity-catalog-is-now-in-public-preview).** The announcement this notebook reacts to.
 # MAGIC
-# MAGIC **[Databricks Free Edition](https://www.databricks.com/learn/free-edition)** — If you don't have a workspace yet, this notebook runs end-to-end on Free Edition (everything except the optional UC trace storage probe).
+# MAGIC **[Databricks Free Edition](https://www.databricks.com/learn/free-edition).** If you don't have a workspace yet, this notebook runs end-to-end on Free Edition. The probe at the end will fail gate 3 with the verbatim default-storage error, which is itself the architectural finding for that environment.
