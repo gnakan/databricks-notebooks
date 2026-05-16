@@ -18,7 +18,7 @@
 # MAGIC - **A Databricks workspace with Lakebase available.** The notebook was demonstrated on a Premium Azure workspace. Lakebase requires a Premium or Enterprise tier.
 # MAGIC - **Foundation Model APIs access on the same workspace.** The pay-per-token endpoints for `databricks-llama-4-maverick`, `databricks-gpt-oss-120b`, and `databricks-claude-sonnet-4-6` are all used. All three support function calling per the Databricks docs.
 # MAGIC - **Compute:** the default Serverless runtime. No cluster attach required.
-# MAGIC - **Libraries:** `databricks-sdk`, [`psycopg[binary]`](https://www.psycopg.org/psycopg3/docs/), and the [`openai`](https://github.com/openai/openai-python) Python client (used as the OpenAI-compatible client for Foundation Model APIs). The next cell installs all three and restarts the kernel.
+# MAGIC - **Libraries:** `databricks-sdk`, [`psycopg[binary]`](https://www.psycopg.org/psycopg3/docs/), and the [`openai`](https://github.com/openai/openai-python) Python client, pointed at Databricks Foundation Model APIs. The next cell installs all three and restarts the kernel.
 # MAGIC - **Identity:** the workspace user runs as their Databricks email; Lakebase maps that to a [Postgres role](https://docs.databricks.com/aws/en/oltp/projects/authentication) with the same identity, and Foundation Model APIs authenticate from the same notebook session. No PAT or external secret to manage.
 
 # COMMAND ----------
@@ -55,9 +55,9 @@ w = WorkspaceClient()
 PROBE_ID = uuid.uuid4().hex[:8]
 PROJECT_ID = f"tl-agent-{PROBE_ID}"
 
-# Three models on the Foundation Model APIs surface, each tagged with a short
-# id used in branch naming and the comparison table. The branch id distinguishes
-# each model's lifecycle on the shared project; the label is the human-readable
+# Three pay-per-token Foundation Models, each tagged with a short id used in
+# branch naming and the comparison table. The branch id distinguishes each
+# model's lifecycle on the shared project; the label is the human-readable
 # column header.
 MODELS = [
     {"id": "llama-4-mvk",  "endpoint": "databricks-llama-4-maverick",   "label": "Llama 4 Maverick"},
@@ -73,8 +73,8 @@ current_user = ctx.userName().get()
 workspace_url = ctx.apiUrl().get()
 workspace_token = ctx.apiToken().get()
 
-# OpenAI-compatible client targeting Databricks serving endpoints. Re-used
-# across model calls; only the `model` argument changes per request.
+# OpenAI client targeting Databricks serving endpoints. Re-used across model
+# calls; only the `model` argument changes per request.
 oai = OpenAI(api_key=workspace_token, base_url=f"{workspace_url}/serving-endpoints")
 
 print(f"Workspace user   : {current_user}")
@@ -240,7 +240,7 @@ print("Tools defined:", ", ".join(TOOL_REGISTRY.keys()))
 # MAGIC %md
 # MAGIC ## Define the tool schemas the model sees
 # MAGIC
-# MAGIC OpenAI-compatible function schemas. Each schema mirrors a tool function's signature: a name, a one-line description so the model knows when to call it, and a JSON schema for the arguments. The model never executes Python; it returns a JSON object naming the tool and the arguments to pass.
+# MAGIC Function schemas in the format the OpenAI client expects. Each schema mirrors a tool function's signature: a name, a one-line description so the model knows when to call it, and a JSON schema for the arguments. The model never executes Python; it returns a JSON object naming the tool and the arguments to pass.
 
 # COMMAND ----------
 
@@ -360,8 +360,8 @@ def run_agent_loop(model_endpoint: str, system_prompt: str, user_prompt: str, ma
         )
         t_turn_elapsed = time.perf_counter() - t_turn_start
 
-        # Token accounting. The OpenAI-compatible response carries a usage
-        # block with prompt_tokens (input) and completion_tokens (output).
+        # Token accounting. The response carries a usage block with
+        # prompt_tokens (input) and completion_tokens (output).
         # Defensive: a provider that returns None is handled with zeros.
         # Totals accumulate once per turn (one model forward pass) even when
         # the turn produces multiple parallel tool_calls.
@@ -562,8 +562,8 @@ def summarize_run(run: dict) -> dict:
     # Defensive .get(): a tool that the model called but that raised an
     # exception inside the function body returns {"error": "..."} rather than
     # the expected timing dict. Keep the "called_X" booleans truthful (the
-    # model did emit the structured tool_call) while showing missing timing
-    # values as None in the table.
+    # model did call the tool as a structured tool_call) while showing missing
+    # timing values as None in the table.
     t_create = provision["result"].get("t_create_seconds") if provision else None
     t_endpoint = provision["result"].get("t_endpoint_ready_seconds") if provision else None
     t_write = write["result"].get("t_round_trip_seconds") if write else None
@@ -705,9 +705,9 @@ for run in agent_runs:
 # MAGIC %md
 # MAGIC ## Result
 # MAGIC
-# MAGIC Three models, three lifecycles, one comparison table. The same OpenAI-compatible client points at three different Foundation Model API endpoints; the only variable changed across runs is the model name. Whatever divergence the table shows is the model surface, not the integration surface.
+# MAGIC Three models, three lifecycles, one comparison table. The same OpenAI client points at three different Foundation Model API endpoints; the only variable changed across runs is the model itself. Whatever divergence the table shows is the model, not the integration.
 # MAGIC
-# MAGIC The two things worth reading off the table: which models orchestrated the full three-tool sequence as structured tool_calls, and how the model-time vs. tool-time split landed. The Lakebase tool time is what a hand-coded notebook would also pay; the model time is the price of letting the model decide the sequence. When teardown_confirmed is False for a model, the agent dropped the teardown call to plain text instead of emitting it as a structured tool_call, and the project-level cleanup cell below is what actually keeps the workspace from accumulating stranded branches.
+# MAGIC The two things worth reading off the table: which models orchestrated the full three-tool sequence as structured tool_calls, and how the model-time vs. tool-time split landed. The Lakebase tool time is what a hand-coded notebook would also pay; the model time is the price of letting the model decide the sequence. When teardown_confirmed is False for a model, the agent dropped the teardown call to plain text instead of structuring it as a tool_call, and the project-level cleanup cell below is what actually keeps the workspace from accumulating stranded branches.
 # MAGIC
 # MAGIC The article framed Lakebase's instant branching as "operationally valuable." What that looks like with multiple models in the loop is a single prompt, three tool schemas, and three different orchestration outcomes. The 10-[unarchived-branches](https://docs.databricks.com/aws/en/oltp/projects/manage-branches) cap and 20-[concurrent-active-computes](https://docs.databricks.com/aws/en/oltp/projects/manage-projects) cap per project are the real concurrency limits an agentic workflow has to design around, which is the practical reason the project-level cleanup is non-optional regardless of which model the agent is wrapping.
 
@@ -731,15 +731,15 @@ except Exception as e:
 # MAGIC %md
 # MAGIC ## Where to go next
 # MAGIC
-# MAGIC - [Lakebase Autoscaling overview](https://docs.databricks.com/aws/en/oltp/projects/): the parent docs page for the Lakebase feature surface this notebook uses.
+# MAGIC - [Lakebase Autoscaling overview](https://docs.databricks.com/aws/en/oltp/projects/): the parent docs page for the Lakebase features this notebook uses.
 # MAGIC - [Manage Lakebase branches](https://docs.databricks.com/aws/en/oltp/projects/manage-branches): canonical reference for `create_branch`, `delete_branch`, TTL semantics, the 10-unarchived-branch cap.
-# MAGIC - [Function calling on Databricks](https://docs.databricks.com/aws/en/machine-learning/model-serving/function-calling): the OpenAI-compatible tool-calling pattern this notebook uses against Foundation Model APIs.
-# MAGIC - [Foundation Model APIs overview](https://docs.databricks.com/aws/en/machine-learning/foundation-model-apis/): the pay-per-token serving surface that hosts `databricks-llama-4-maverick`, `databricks-gpt-oss-120b`, and `databricks-claude-sonnet-4-6`.
+# MAGIC - [Function calling on Databricks](https://docs.databricks.com/aws/en/machine-learning/model-serving/function-calling): the tool-calling pattern this notebook uses against Foundation Model APIs.
+# MAGIC - [Foundation Model APIs overview](https://docs.databricks.com/aws/en/machine-learning/foundation-model-apis/): the pay-per-token endpoints that host `databricks-llama-4-maverick`, `databricks-gpt-oss-120b`, and `databricks-claude-sonnet-4-6`.
 # MAGIC - [Inside one of the first production deployments of Lakebase](https://www.databricks.com/blog/inside-one-first-production-deployments-lakebase-langguards-agentic-workflow-governance-engine): the source article that triggered this experiment.
 
 # COMMAND ----------
 
-# Final summary. Emits structured results for automated runs via dbutils.notebook.exit.
+# Final summary. Writes structured results for automated runs via dbutils.notebook.exit.
 # Interactive runs see this as a JSON payload printed by the workspace UI; automated
 # runs see it in jobs/runs/get-output.result. Defensive against missing variables so
 # a partial run still returns whatever did succeed.
