@@ -1,0 +1,13 @@
+# Fixture bundle for `publish.py --self-test`. Not a real experiment artifact:
+# it exists so the tree pusher has a directory whose (local path -> repo path)
+# mapping can be asserted offline.
+bundle:
+  name: fixture-bundle
+
+include:
+  - resources/*.yml
+
+targets:
+  dev:
+    mode: development
+    default: true
