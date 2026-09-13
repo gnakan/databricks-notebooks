@@ -1,0 +1,8 @@
+resources:
+  jobs:
+    fixture_job:
+      name: fixture-job
+      tasks:
+        - task_key: main
+          spark_python_task:
+            python_file: ../src/task.py
