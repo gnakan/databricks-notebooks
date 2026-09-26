@@ -11,7 +11,7 @@
 # MAGIC %md
 # MAGIC ## Setup
 # MAGIC
-# MAGIC The notebook runs on [Databricks Free Edition](https://docs.databricks.com/aws/en/getting-started/free-edition) in about 15 minutes, most of it waiting on two automation runs. Tag Automations is a Beta feature, and on the Free Edition workspace I used it was already switched on under **Settings > Previews**. The first cell checks that for you rather than assuming it.
+# MAGIC The notebook runs on [Databricks Free Edition](https://docs.databricks.com/aws/en/getting-started/free-edition) in about 15 minutes, most of it waiting on two automation runs. Tag Automations is a Beta feature, and on the Free Edition workspace I used it was already on. On another workspace, an admin turns it on from the username menu in the top bar > **Previews**. The first cell checks that for you rather than assuming it.
 # MAGIC
 # MAGIC What you need before running this:
 # MAGIC
@@ -85,7 +85,7 @@ if enabled is True:
 else:
     gates_ok = False
     print(f"[gate 1] Previews: Tag Automations (metadata_automations) -> FAIL (http {code}, effective={enabled}). "
-          "A workspace admin turns it on under Settings > Previews.")
+          "A workspace admin turns it on from the username menu in the top bar > Previews.")
 
 # [gate 2] the Tag Policy API answers and the class.* governed tags exist.
 code, body = api("GET", "/api/2.1/tag-policies")
