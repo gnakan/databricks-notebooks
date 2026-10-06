@@ -1,0 +1,25 @@
+{
+  "repo": "godotengine/godot",
+  "as_of": "2026-10-05",
+  "window_start": "2025-10-05",
+  "window_end": "2026-10-05",
+  "compares": [
+    "4.5-stable...4.6-stable",
+    "4.6-stable...4.6.1-stable",
+    "4.6.1-stable...4.6.2-stable",
+    "4.6.2-stable...4.6.3-stable",
+    "4.6-stable...4.7-stable",
+    "4.7-stable...4.7.1-stable",
+    "4.7.1-stable...4.7.2-stable",
+    "3.6.1-stable...3.6.2-stable",
+    "3.6.2-stable...3.6.3-stable"
+  ],
+  "counts": {
+    "pull_requests": 4817,
+    "releases": 11,
+    "release_commits": 7789,
+    "cherry_picks_resolved": 394,
+    "cherry_picks_total": 397,
+    "ci_runs": 26873
+  }
+}
