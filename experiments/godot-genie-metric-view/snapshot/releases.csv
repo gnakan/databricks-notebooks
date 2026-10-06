@@ -1,0 +1,12 @@
+release_tag,release_line,version,release_type,published_at
+4.5.1-stable,4.5,4.5.1,patch,2025-10-15T15:26:55Z
+3.6.2-stable,3.6,3.6.2,patch,2025-10-23T10:28:05Z
+4.6-stable,4.6,4.6,feature,2026-01-26T14:05:33Z
+4.6.1-stable,4.6,4.6.1,patch,2026-02-16T20:26:38Z
+4.5.2-stable,4.5,4.5.2,patch,2026-03-19T14:32:41Z
+4.6.2-stable,4.6,4.6.2,patch,2026-04-01T19:12:33Z
+4.6.3-stable,4.6,4.6.3,patch,2026-05-20T20:49:16Z
+4.7-stable,4.7,4.7,feature,2026-06-18T12:06:17Z
+4.7.1-stable,4.7,4.7.1,patch,2026-07-14T18:03:10Z
+4.7.2-stable,4.7,4.7.2,patch,2026-08-18T16:12:28Z
+3.6.3-stable,3.6,3.6.3,patch,2026-08-22T14:05:19Z
