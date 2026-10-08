@@ -9,7 +9,7 @@
 # MAGIC
 # MAGIC **Hypothesis:** If the ai_decide function is a drop-in for routing, it should pick the right team as often as the ai_classify function does and finish the batch faster. Its escalation probability should also catch the tickets that need to jump the queue.
 # MAGIC
-# MAGIC **Validation conditions** (set before the run). The ai_decide function's team accuracy lands no more than 2 percentage points below the ai_classify function's on the same rows. Its batch time for the same single question, median of three runs after a warm-up, comes in under the ai_classify function's. And with the escalation question at a 0.5 threshold, it flags at least 90% of the tickets labelled for escalation, with at least 80% precision.
+# MAGIC **Validation conditions** (set before the run). The ai_decide function's team accuracy lands no more than 2 percentage points below the ai_classify function's on the same rows. Its batch time for the same single question, the middle of three runs after a warm-up, comes in under the ai_classify function's. And with the escalation question at a 0.5 threshold, it flags at least 90% of the tickets labelled for escalation, with at least 80% precision.
 
 # COMMAND ----------
 
@@ -398,7 +398,7 @@ for team, words in TEAM_DESCRIPTIONS.items():
 
 # MAGIC %md
 # MAGIC ## The ai_classify function run
-# MAGIC One question, which team handles this ticket, with the team descriptions as labels. Each run writes its answers to a table, and the time is the median of three runs after one warm-up.
+# MAGIC One question, which team handles this ticket, with the team descriptions as labels. Each run writes its answers to a table, and each batch runs three times after a warm-up; the notebook keeps the middle time, so one slow or fast run can't skew it.
 
 # COMMAND ----------
 
@@ -430,7 +430,7 @@ for i in range(3):
     print(f"  classify run {i+1}: {t:.1f}s")
 
 classify_median = statistics.median(classify_times)
-print(f"ai_classify median: {classify_median:.1f}s")
+print(f"ai_classify typical batch (middle of 3): {classify_median:.1f}s")
 
 classify_rows = df_classify.toPandas()
 classify_correct = (classify_rows["true_team"] == classify_rows["classify_team"]).sum()
@@ -510,7 +510,7 @@ for i in range(3):
     print(f"  decide (single q) run {i+1}: {t:.1f}s")
 
 decide_single_median = statistics.median(decide_single_times)
-print(f"ai_decide (single q) median: {decide_single_median:.1f}s")
+print(f"ai_decide (single q) typical batch (middle of 3): {decide_single_median:.1f}s")
 
 # Three-question run (one warm-up, three timed)
 _, _ = run_decide_three(TABLE, DECIDE_QUESTIONS_THREE)
@@ -521,7 +521,7 @@ for i in range(3):
     print(f"  decide (3-q) run {i+1}: {t:.1f}s")
 
 decide_three_median = statistics.median(decide_three_times)
-print(f"ai_decide (3-q) median: {decide_three_median:.1f}s")
+print(f"ai_decide (3-q) typical batch (middle of 3): {decide_three_median:.1f}s")
 
 # COMMAND ----------
 
@@ -559,7 +559,7 @@ for i in range(3):
     print(f"  ai_query run {i+1}: {t:.1f}s")
 
 query_median = statistics.median(query_times)
-print(f"ai_query ({QUERY_MODEL}) median: {query_median:.1f}s")
+print(f"ai_query ({QUERY_MODEL}) typical batch (middle of 3): {query_median:.1f}s")
 
 query_rows = df_query.toPandas()
 query_rows["query_team"] = query_rows["query_raw"].map(first_team)
@@ -634,8 +634,8 @@ right_conf = decide_rows[decide_rows["true_team"] == decide_rows["decide_team"]]
 wrong_conf = decide_rows[decide_rows["true_team"] != decide_rows["decide_team"]]["decide_confidence"]
 conf_right_med = float(right_conf.median()) if len(right_conf) else None
 conf_wrong_med = float(wrong_conf.median()) if len(wrong_conf) else None
-print(f"Confidence correct median: {conf_right_med:.3f}" if conf_right_med else "Confidence correct: n/a")
-print(f"Confidence wrong median:   {conf_wrong_med:.3f}" if conf_wrong_med else "Confidence wrong: n/a")
+print(f"Typical confidence, right answers: {conf_right_med:.3f}" if conf_right_med else "Confidence correct: n/a")
+print(f"Typical confidence, wrong answers: {conf_wrong_med:.3f}" if conf_wrong_med else "Confidence wrong: n/a")
 
 # Escalation scoring at 0.5 threshold
 escalate_pred = (three_rows["escalate_prob"] >= 0.5)
@@ -772,7 +772,7 @@ largest_time = max(classify_median, decide_single_median, decide_three_median, q
 decide_slower = decide_single_median > classify_median
 timing = section(
     "Batch time for all tickets",
-    "Median of three timed runs after a warm-up. Each run sends every ticket through the function once.",
+    "Each batch ran three times after a warm-up; this is the middle time. Each run sends every ticket through the function once.",
     labelled("ai_classify (team)", f"{classify_median:.0f}s", bar(classify_median, largest_time))
     + labelled("ai_decide (team)", f"{decide_single_median:.0f}s",
                bar(decide_single_median, largest_time, pop=decide_slower), figure_pop=decide_slower)
@@ -834,7 +834,7 @@ confidence = section(
 
 body = routing + descriptions + timing + escalation + confidence
 if conf_right_med is not None and conf_wrong_med is not None:
-    body += callout(f"Median confidence: {conf_right_med:.2f} on right answers, {conf_wrong_med:.2f} on wrong ones.")
+    body += callout(f"Typical confidence: {conf_right_med:.2f} on right answers, {conf_wrong_med:.2f} on wrong ones.")
 
 displayHTML(panel(
     f"ai_decide, ai_classify and Llama 3.3 70B on {total} support tickets",
@@ -895,11 +895,11 @@ print("RESULTS_JSON " + json.dumps({
 # MAGIC
 # MAGIC One line per team did more for accuracy than the choice of function. With bare team names, the ai_classify function routed 151 of 200 tickets to the right team, the ai_decide function 147 and Llama 3.3 70B 167. With the descriptions in place those became 181, 175 and 176, so all three ended up within 6 tickets of each other.
 # MAGIC
-# MAGIC None of the three validation conditions held on round 2. On accuracy, 175 against 181 is a gap of 3.0 points (6 tickets), outside the 2-point condition. Its single-question batch took a median of 154.2 seconds against 60.4 for the ai_classify function, and asking three questions per ticket took 194.3. Llama 3.3 70B's median was 38.2 seconds, but its timed runs were 3.8, 38.2 and 71.2 seconds, so read that one loosely. This is one run on shared Free Edition compute, on one routing task, and the ai_decide function is in Beta.
+# MAGIC None of the three validation conditions held on round 2. On accuracy, 175 against 181 is a gap of 3.0 points (6 tickets), outside the 2-point condition. Its single-question batch typically took 154.2 seconds against 60.4 for the ai_classify function, and asking three questions per ticket took 194.3. Llama 3.3 70B's typical batch took 38.2 seconds, but its timed runs were 3.8, 38.2 and 71.2 seconds, so read that one loosely. This is one run on shared Free Edition compute, on one routing task, and the ai_decide function is in Beta.
 # MAGIC
 # MAGIC At a 0.5 threshold, the escalation question caught 23 of the 29 tickets labelled for escalation (79.3% recall) and raised 8 false alarms (74.2% precision), short of the 90% and 80% you'd want before trusting it to page someone.
 # MAGIC
-# MAGIC What the ai_decide function is good for today: one call answered team, escalation and urgency together, with no error rows across 200 tickets, and you get a confidence score on every answer. Its median confidence was 0.95 on right answers and 0.90 on wrong ones, so a lower score is a fair reason to send a ticket to a person. And if your routing is off, write down what each team owns before you swap functions.
+# MAGIC What the ai_decide function is good for today: one call answered team, escalation and urgency together, with no error rows across 200 tickets, and you get a confidence score on every answer. Its typical confidence was 0.95 on right answers and 0.90 on wrong ones, so a lower score is a fair reason to send a ticket to a person. And if your routing is off, write down what each team owns before you swap functions.
 
 # COMMAND ----------
 
