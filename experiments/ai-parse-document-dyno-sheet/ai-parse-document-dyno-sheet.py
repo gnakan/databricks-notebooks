@@ -7,7 +7,7 @@
 # MAGIC
 # MAGIC Found "chart values as structured JSON" interesting, so I put together an experiment.
 # MAGIC
-# MAGIC I drive a Challenger Hellcat, and the chart I read more than any other is a dyno sheet: two pulls laid over each other, power and torque sharing one plot on two axes, an air/fuel trace underneath, and the peak numbers printed in the legend. That's a much busier chart than a bar chart of quarterly totals, so it's a good test of the release note's claim. The notebook draws a dyno sheet from numbers it knows, hands the image to the `ai_parse_document` function three times, and scores what comes back against the numbers it drew. A second section runs the same scoring on any dyno sheet you bring.
+# MAGIC I drive a Challenger Hellcat, and a dyno sheet is very helpful for evaluating how a car performs after tuning and upgrades, but it can be hard to understand: two pulls laid over each other, power and torque sharing one plot on two axes, an air/fuel trace underneath, and the peak numbers printed in the legend. That's a much busier chart than a bar chart of quarterly totals, so it's a good test of the release note's claim. The notebook draws a dyno sheet from numbers it knows, hands the image to the `ai_parse_document` function three times, and scores what comes back against the numbers it drew. A second section runs the same scoring on any dyno sheet you bring.
 
 # COMMAND ----------
 
