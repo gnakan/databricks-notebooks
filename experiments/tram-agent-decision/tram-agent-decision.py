@@ -670,7 +670,7 @@ print("RESULTS_JSON " + json.dumps(results, default=str))
 # MAGIC
 # MAGIC Explaining the rule's call also took fewer tokens than making it, for every model: gpt-oss-120b used 469 tokens per call, typical, to explain and 591 to decide.
 # MAGIC
-# MAGIC One caveat: the tool results are hand-built for six Helsinki trips, not read from a live feed, and the rule and policy are mine, modelled on the article's description rather than its code.
+# MAGIC One caveat: the tool results for six Helsinki trips are set up in the notebook, not read from a live feed, and the rule and policy are mine, modelled on the article's description rather than its code.
 
 # COMMAND ----------
 
